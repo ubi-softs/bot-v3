@@ -95,7 +95,7 @@ class SellAuth(commands.Cog):
     @app_commands.command(name="sa_editproduct", description="Edit an existing product")
     @app_commands.describe(product_id="Product ID to edit", title="New title (leave blank to keep)", price="New price (leave 0 to keep)", description="New description")
     @app_commands.checks.has_permissions(administrator=True)
-  async def sa_editproduct(self, interaction: discord.Interaction, product_id: str, title: str = "", price: float = 0.0, description: str = ""):
+    async def sa_editproduct(self, interaction: discord.Interaction, product_id: str, title: str = "", price: float = 0.0, description: str = ""):
         await interaction.response.defer(ephemeral=True)
         payload = {}
         if title:
