@@ -48,6 +48,7 @@ COGS = [
     "cogs.afk",
     "cogs.reactionroles",
     "cogs.suggestions",
+    "cogs.vouch",
 ]
 
 
