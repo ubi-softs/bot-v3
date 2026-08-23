@@ -49,6 +49,7 @@ COGS = [
     "cogs.reactionroles",
     "cogs.suggestions",
     "cogs.vouch",
+    "cogs.onlinerole",
 ]
 
 
