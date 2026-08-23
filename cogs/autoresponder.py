@@ -41,6 +41,12 @@ class AutoResponder(commands.Cog):
         self.bot = bot
 
     def _is_staff(self, member: discord.Member) -> bool:
+        conf = _gconf(member.guild.id)
+        staff_role_id = conf.get("staff_role")
+        if staff_role_id:
+            role = member.guild.get_role(int(staff_role_id))
+            return role is not None and role in member.roles
+        # Fallback if no staff role has been configured yet
         return member.guild_permissions.manage_messages
 
     @commands.Cog.listener()
@@ -169,6 +175,19 @@ class AutoResponder(commands.Cog):
             config[gid].pop("staff_channel", None)
             save_config(config)
             await interaction.response.send_message("✅ Staff-only auto-responses will now be DMed to whoever triggers them.", ephemeral=True)
+
+    @autoresponder_group.command(name="role", description="Set which role counts as 'staff' for staff-only triggers")
+    @app_commands.describe(role="The staff role (members with this role can trigger and see staff-only replies)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def autoresponderrole(self, interaction: discord.Interaction, role: discord.Role):
+        config = load_config()
+        gid = str(interaction.guild.id)
+        config.setdefault(gid, {})["staff_role"] = str(role.id)
+        save_config(config)
+        await interaction.response.send_message(
+            f"✅ {role.mention} is now the staff role — only members with this role can trigger staff-only auto-responses.",
+            ephemeral=True,
+        )
 
     @autoresponder_group.command(name="toggle", description="Enable or disable the auto-responder entirely")
     @app_commands.checks.has_permissions(manage_guild=True)
