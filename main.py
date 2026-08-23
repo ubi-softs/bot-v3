@@ -51,6 +51,7 @@ COGS = [
     "cogs.vouch",
     "cogs.onlinerole",
     "cogs.autoresponder",
+    "cogs.socialmedia",
 ]
 
 
