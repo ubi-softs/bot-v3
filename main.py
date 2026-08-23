@@ -52,6 +52,7 @@ COGS = [
     "cogs.onlinerole",
     "cogs.autoresponder",
     "cogs.socialmedia",
+    "cogs.aichat",
 ]
 
 
