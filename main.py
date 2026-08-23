@@ -50,6 +50,7 @@ COGS = [
     "cogs.suggestions",
     "cogs.vouch",
     "cogs.onlinerole",
+    "cogs.autoresponder",
 ]
 
 
