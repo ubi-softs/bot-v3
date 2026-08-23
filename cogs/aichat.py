@@ -4,9 +4,9 @@ keep talking. Conversation history is tracked per-message-chain so multiple
 people can have separate conversations with the bot at the same time.
 
 Requires OPENAI_API_KEY to be set in your environment (Railway → Variables).
-Uses OpenAI's Chat Completions API — if you're using a different provider
-(Anthropic, Groq, etc.) the request in `_ask_ai()` below is the only part
-that needs changing to match that provider's API shape.
+This is wired up for NVIDIA's OpenAI-compatible API (build.nvidia.com) since
+that's where an `nvapi-...` key comes from. If you switch providers later
+(OpenAI, Groq, etc.), only OPENAI_API_BASE / OPENAI_MODEL below need to change.
 """
 import discord
 from discord.ext import commands
@@ -14,7 +14,8 @@ import aiohttp
 import os
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://integrate.api.nvidia.com/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta/llama-3.1-8b-instruct")
 
 SYSTEM_PROMPT = (
     "You are a friendly, helpful assistant for a Discord server that sells social "
@@ -45,7 +46,7 @@ class AIChat(commands.Cog):
         headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
         async with aiohttp.ClientSession() as s:
-            async with s.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as r:
+            async with s.post(f"{OPENAI_API_BASE}/chat/completions", headers=headers, json=payload) as r:
                 data = await r.json()
                 if r.status != 200:
                     err = data.get("error", {}).get("message", str(data))
