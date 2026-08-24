@@ -53,6 +53,7 @@ COGS = [
     "cogs.autoresponder",
     "cogs.socialmedia",
     "cogs.aichat",
+    "cogs.notes",
 ]
 
 
