@@ -54,6 +54,7 @@ COGS = [
     "cogs.socialmedia",
     "cogs.aichat",
     "cogs.notes",
+    "cogs.setup",
 ]
 
 
