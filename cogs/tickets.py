@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
-import json, os, datetime, asyncio
+from discord.ext import commands, tasks
+import json, os, datetime, asyncio, io
 
 TICKETS_FILE = "data/tickets.json"
 CONFIG_FILE = "data/ticket_config.json"
@@ -31,6 +31,46 @@ def save_config(d):
     os.makedirs("data", exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(d, f, indent=2)
+
+
+async def build_transcript(channel: discord.TextChannel) -> discord.File:
+    """Fetch the ticket's message history and turn it into a downloadable .txt transcript."""
+    lines = []
+    async for msg in channel.history(limit=1000, oldest_first=True):
+        ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        content = msg.content or "[embed/attachment]"
+        lines.append(f"[{ts}] {msg.author}: {content}")
+    text = "\n".join(lines) if lines else "(no messages)"
+    buffer = io.BytesIO(text.encode("utf-8"))
+    return discord.File(buffer, filename=f"transcript-{channel.name}.txt")
+
+
+async def log_ticket_close(bot: commands.Bot, guild: discord.Guild, channel: discord.TextChannel, opener_id: str, ticket_type: str, closed_by: str):
+    """Post a transcript + summary to the configured ticket log channel, if one is set."""
+    config = load_config()
+    log_channel_id = config.get(str(guild.id), {}).get("log_channel")
+    if not log_channel_id:
+        return
+    log_channel = guild.get_channel(int(log_channel_id))
+    if not log_channel:
+        return
+
+    try:
+        file = await build_transcript(channel)
+    except discord.HTTPException:
+        return
+
+    opener = guild.get_member(int(opener_id)) if opener_id else None
+    e = discord.Embed(title="🎫 Ticket Closed", color=discord.Color.dark_grey(), timestamp=datetime.datetime.utcnow())
+    e.add_field(name="Opened By", value=opener.mention if opener else f"User ID: {opener_id}", inline=True)
+    e.add_field(name="Type", value=ticket_type, inline=True)
+    e.add_field(name="Closed By", value=closed_by, inline=True)
+    e.set_footer(text=f"Channel: #{channel.name}")
+
+    try:
+        await log_channel.send(embed=e, file=file)
+    except discord.Forbidden:
+        pass
 
 
 # ── Ticket Panel View (the 5 buttons users click to open a ticket) ────────────
@@ -80,6 +120,7 @@ class TicketPanelView(discord.ui.View):
             "type": category_name,
             "opened": str(datetime.datetime.utcnow()),
             "closed": False,
+            "warned": False,
         }
         save_tickets(tickets)
 
@@ -168,12 +209,21 @@ class TicketCloseConfirmView(discord.ui.View):
         tickets = load_tickets()
         gid = str(interaction.guild.id)
         cid = str(interaction.channel.id)
+        entry = tickets.get(gid, {}).get(cid, {})
+
+        # Log the transcript BEFORE the channel is deleted
+        await log_ticket_close(
+            interaction.client, interaction.guild, interaction.channel,
+            entry.get("user_id", ""), entry.get("type", "Unknown"), str(interaction.user),
+        )
+
         if gid in tickets and cid in tickets[gid]:
             tickets[gid][cid]["closed"] = True
             save_tickets(tickets)
+
         await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
         await asyncio.sleep(5)
-        await interaction.channel.delete(reason="Ticket closed")
+        await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -186,6 +236,10 @@ class Tickets(commands.Cog):
         self.bot = bot
         bot.add_view(TicketPanelView())
         bot.add_view(TicketControlView())
+        self.autoclose_loop.start()
+
+    def cog_unload(self):
+        self.autoclose_loop.cancel()
 
     # ── /setuptickets — asks which channel, then posts the 5-option panel ─────
     @app_commands.command(name="setuptickets", description="Set up the ticket panel in a channel")
@@ -228,6 +282,16 @@ class Tickets(commands.Cog):
         save_config(config)
         await interaction.response.send_message(f"✅ Ticket category set to **{name}**", ephemeral=True)
 
+    # ── /setticketlog — where transcripts get posted on close ─────────────────
+    @app_commands.command(name="setticketlog", description="Set the channel where ticket transcripts are logged when closed")
+    @app_commands.describe(channel="Channel to log closed ticket transcripts to")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setticketlog(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["log_channel"] = str(channel.id)
+        save_config(config)
+        await interaction.response.send_message(f"✅ Ticket transcripts will be logged to {channel.mention}", ephemeral=True)
+
     @app_commands.command(name="claim", description="Claim the current ticket")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def claim(self, interaction: discord.Interaction):
@@ -269,6 +333,119 @@ class Tickets(commands.Cog):
         tickets.pop(str(interaction.guild.id), None)
         save_tickets(tickets)
         await interaction.followup.send(f"🗑️ Purged **{deleted}** ticket channels.", ephemeral=True)
+
+    # ── Auto-close configuration ───────────────────────────────────────────────
+    autoclose_group = app_commands.Group(name="ticketautoclose", description="Configure automatic closing of inactive tickets")
+
+    @autoclose_group.command(name="enable", description="Enable auto-closing of inactive tickets")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ac_enable(self, interaction: discord.Interaction):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["autoclose_enabled"] = True
+        save_config(config)
+        await interaction.response.send_message("✅ Ticket auto-close enabled.", ephemeral=True)
+
+    @autoclose_group.command(name="disable", description="Disable auto-closing of inactive tickets")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ac_disable(self, interaction: discord.Interaction):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["autoclose_enabled"] = False
+        save_config(config)
+        await interaction.response.send_message("✅ Ticket auto-close disabled.", ephemeral=True)
+
+    @autoclose_group.command(name="setwarn", description="Set how many hours of inactivity before a warning is sent")
+    @app_commands.describe(hours="Hours of inactivity before warning")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ac_setwarn(self, interaction: discord.Interaction, hours: app_commands.Range[int, 1, 720]):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["autoclose_warn_hours"] = hours
+        save_config(config)
+        await interaction.response.send_message(f"✅ Tickets will get a warning after **{hours}h** of inactivity.", ephemeral=True)
+
+    @autoclose_group.command(name="setclose", description="Set how many hours of inactivity before a ticket auto-closes")
+    @app_commands.describe(hours="Hours of inactivity before auto-close")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ac_setclose(self, interaction: discord.Interaction, hours: app_commands.Range[int, 1, 720]):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["autoclose_close_hours"] = hours
+        save_config(config)
+        await interaction.response.send_message(f"✅ Tickets will auto-close after **{hours}h** of inactivity.", ephemeral=True)
+
+    @autoclose_group.command(name="settings", description="View current auto-close settings")
+    async def ac_settings(self, interaction: discord.Interaction):
+        conf = load_config().get(str(interaction.guild.id), {})
+        e = discord.Embed(title="⏳ Ticket Auto-Close Settings", color=discord.Color.blurple())
+        e.add_field(name="Enabled", value=str(conf.get("autoclose_enabled", False)), inline=True)
+        e.add_field(name="Warn After", value=f"{conf.get('autoclose_warn_hours', 24)}h", inline=True)
+        e.add_field(name="Close After", value=f"{conf.get('autoclose_close_hours', 48)}h", inline=True)
+        await interaction.response.send_message(embed=e, ephemeral=True)
+
+    # ── Background task: checks every 30 minutes for inactive tickets ─────────
+    @tasks.loop(minutes=30)
+    async def autoclose_loop(self):
+        all_tickets = load_tickets()
+        all_config = load_config()
+
+        for gid, guild_tickets in list(all_tickets.items()):
+            gconf = all_config.get(gid, {})
+            if not gconf.get("autoclose_enabled"):
+                continue
+
+            guild = self.bot.get_guild(int(gid))
+            if not guild:
+                continue
+
+            warn_hours = gconf.get("autoclose_warn_hours", 24)
+            close_hours = gconf.get("autoclose_close_hours", 48)
+            now = datetime.datetime.utcnow()
+
+            for cid, entry in list(guild_tickets.items()):
+                if entry.get("closed"):
+                    continue
+                channel = guild.get_channel(int(cid))
+                if not channel:
+                    continue
+
+                # Find the last message time in the channel
+                last_time = None
+                try:
+                    async for msg in channel.history(limit=1):
+                        last_time = msg.created_at.replace(tzinfo=None)
+                except discord.HTTPException:
+                    continue
+                if last_time is None:
+                    try:
+                        last_time = datetime.datetime.fromisoformat(entry.get("opened"))
+                    except (ValueError, TypeError):
+                        continue
+
+                inactive_hours = (now - last_time).total_seconds() / 3600
+
+                if inactive_hours >= close_hours:
+                    await log_ticket_close(self.bot, guild, channel, entry.get("user_id", ""), entry.get("type", "Unknown"), "Auto-close (inactivity)")
+                    entry["closed"] = True
+                    save_tickets(all_tickets)
+                    try:
+                        await channel.delete(reason="Auto-closed due to inactivity")
+                    except discord.HTTPException:
+                        pass
+                elif inactive_hours >= warn_hours and not entry.get("warned"):
+                    try:
+                        opener = guild.get_member(int(entry.get("user_id", 0)))
+                        mention = opener.mention if opener else ""
+                        remaining = round(close_hours - inactive_hours, 1)
+                        await channel.send(
+                            f"⏳ {mention} This ticket has been inactive for a while and will "
+                            f"auto-close in about **{remaining}h** if there's no more activity."
+                        )
+                    except discord.HTTPException:
+                        pass
+                    entry["warned"] = True
+                    save_tickets(all_tickets)
+
+    @autoclose_loop.before_loop
+    async def before_autoclose_loop(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot):
