@@ -19,6 +19,17 @@ def save_config(d):
         json.dump(d, f, indent=2)
 
 
+class WelcomeButtonsView(discord.ui.View):
+    """Plain link buttons — no callback needed, Discord opens the URL client-side."""
+
+    def __init__(self, rules_url: str = None, buy_url: str = None):
+        super().__init__(timeout=None)
+        if rules_url:
+            self.add_item(discord.ui.Button(label="Rules", emoji="📜", style=discord.ButtonStyle.link, url=rules_url))
+        if buy_url:
+            self.add_item(discord.ui.Button(label="Buy Now", emoji="🛍️", style=discord.ButtonStyle.link, url=buy_url))
+
+
 class Welcome(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -33,13 +44,28 @@ class Welcome(commands.Cog):
         if ch_id:
             ch = member.guild.get_channel(int(ch_id))
             if ch:
-                msg = g_config.get("welcome_message", "Welcome {user} to **{server}**! You are member #{count}.")
+                msg = g_config.get("welcome_message", "Welcome {user} to **{server}**!")
                 msg = msg.replace("{user}", member.mention).replace("{server}", member.guild.name).replace("{count}", str(member.guild.member_count))
                 color = int(g_config.get("welcome_color", "0x57F287").replace("0x", ""), 16)
+
                 e = discord.Embed(description=msg, color=color, timestamp=datetime.datetime.utcnow())
                 e.set_author(name=member.display_name, icon_url=member.display_avatar.url)
                 e.set_footer(text=f"ID: {member.id}")
-                await ch.send(embed=e)
+
+                image_url = g_config.get("welcome_image")
+                if image_url:
+                    e.set_image(url=image_url)
+
+                # Build link buttons: Rules → your rules/TOS channel, Buy Now → your shop link
+                rules_url = None
+                rules_channel_id = g_config.get("rules_channel")
+                if rules_channel_id:
+                    rules_url = f"https://discord.com/channels/{member.guild.id}/{rules_channel_id}"
+                buy_url = g_config.get("buy_link")
+
+                view = WelcomeButtonsView(rules_url=rules_url, buy_url=buy_url) if (rules_url or buy_url) else None
+
+                await ch.send(embed=e, view=view)
 
         auto_role_id = g_config.get("auto_role")
         if auto_role_id:
@@ -84,6 +110,51 @@ class Welcome(commands.Cog):
         config.setdefault(str(interaction.guild.id), {})["welcome_message"] = message
         save_config(config)
         await interaction.response.send_message("✅ Welcome message updated.", ephemeral=True)
+
+    @app_commands.command(name="setwelcomeimage", description="Set the banner image shown on the welcome embed")
+    @app_commands.describe(image_url="Direct image URL (leave blank to remove the banner)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setwelcomeimage(self, interaction: discord.Interaction, image_url: str = None):
+        config = load_config()
+        gid = str(interaction.guild.id)
+        config.setdefault(gid, {})
+        if image_url:
+            config[gid]["welcome_image"] = image_url
+            await interaction.response.send_message("✅ Welcome banner image set.", ephemeral=True)
+        else:
+            config[gid].pop("welcome_image", None)
+            await interaction.response.send_message("✅ Welcome banner image removed.", ephemeral=True)
+        save_config(config)
+
+    @app_commands.command(name="setwelcomerules", description="Set which channel the Rules button on the welcome message links to")
+    @app_commands.describe(channel="Your rules/TOS channel")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setwelcomerules(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        config = load_config()
+        config.setdefault(str(interaction.guild.id), {})["rules_channel"] = str(channel.id)
+        save_config(config)
+        await interaction.response.send_message(f"✅ The Rules button will now link to {channel.mention}", ephemeral=True)
+
+    @app_commands.command(name="setwelcomebuylink", description="Set the URL the Buy Now button on the welcome message opens")
+    @app_commands.describe(url="Your shop link (leave blank to remove the button)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setwelcomebuylink(self, interaction: discord.Interaction, url: str = None):
+        config = load_config()
+        gid = str(interaction.guild.id)
+        config.setdefault(gid, {})
+        if url:
+            config[gid]["buy_link"] = url
+            await interaction.response.send_message(f"✅ The Buy Now button will now open {url}", ephemeral=True)
+        else:
+            config[gid].pop("buy_link", None)
+            await interaction.response.send_message("✅ Buy Now button removed.", ephemeral=True)
+        save_config(config)
+
+    @app_commands.command(name="testwelcome", description="Preview the welcome message as it would appear for you")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def testwelcome(self, interaction: discord.Interaction):
+        await self.on_member_join(interaction.user)
+        await interaction.response.send_message("✅ Sent a preview to your welcome channel.", ephemeral=True)
 
     @app_commands.command(name="setleavechannel", description="Set the leave message channel")
     @app_commands.describe(channel="Channel for leave messages")
