@@ -12,7 +12,6 @@ import asyncio
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURATION — pulled from environment variables (Railway → Variables)
 #  Required:  BOT_TOKEN
-#  Optional:  SELLAUTH_API_KEY, SELLAUTH_SHOP_ID  (needed for /sa_ commands)
 #             COMMAND_PREFIX (defaults to "!")
 # ══════════════════════════════════════════════════════════════
 BOT_TOKEN         = os.getenv("BOT_TOKEN")
@@ -29,9 +28,7 @@ log = logging.getLogger("main")
 intents = discord.Intents.all()   # full intents for ultimate bot
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents, help_command=None)
 
-# Attach SellAuth credentials to the bot object so cogs can read them
-bot.SELLAUTH_API_KEY = SELLAUTH_API_KEY
-bot.SELLAUTH_SHOP_ID = SELLAUTH_SHOP_ID
+
 
 # All cogs that make up the ultimate bot
 COGS = [
@@ -40,7 +37,6 @@ COGS = [
     "cogs.leveling",
     "cogs.invites",
     "cogs.utility",
-    "cogs.sellauth",
     "cogs.welcome",
     "cogs.embeds",
     "cogs.info",
