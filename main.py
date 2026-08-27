@@ -55,6 +55,10 @@ COGS = [
     "cogs.aichat",
     "cogs.notes",
     "cogs.setup",
+    "cogs.servertools",
+    "cogs.slots",
+    "cogs.personalinvite",
+    "cogs.botconfig",
 ]
 
 
