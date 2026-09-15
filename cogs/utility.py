@@ -3,28 +3,33 @@ from discord import app_commands
 from discord.ext import commands
 import datetime, time, re
 
+
 START_TIME = time.time()
 
 
 class Utility(commands.Cog):
+    """All commands live under /utility so this cog only costs 1 slash-command slot."""
+
+    utility_group = app_commands.Group(name="utility", description="Utility & info commands")
+
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="ping", description="Check the bot's latency")
+    @utility_group.command(name="ping", description="Check the bot's latency")
     async def ping(self, interaction: discord.Interaction):
         latency = round(self.bot.latency * 1000)
         color = discord.Color.green() if latency < 100 else discord.Color.yellow() if latency < 200 else discord.Color.red()
         e = discord.Embed(title="🏓 Pong!", description=f"**Latency:** {latency}ms", color=color)
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="uptime", description="Check how long the bot has been online")
+    @utility_group.command(name="uptime", description="Check how long the bot has been online")
     async def uptime(self, interaction: discord.Interaction):
         elapsed = int(time.time() - START_TIME)
         h, rem = divmod(elapsed, 3600)
         m, s = divmod(rem, 60)
         await interaction.response.send_message(f"⏱️ Uptime: **{h}h {m}m {s}s**")
 
-    @app_commands.command(name="serverinfo", description="View information about this server")
+    @utility_group.command(name="serverinfo", description="View information about this server")
     async def serverinfo(self, interaction: discord.Interaction):
         g = interaction.guild
         e = discord.Embed(title=g.name, color=discord.Color.blurple(), timestamp=datetime.datetime.utcnow())
@@ -40,7 +45,7 @@ class Utility(commands.Cog):
         e.set_footer(text=f"ID: {g.id}")
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="userinfo", description="View information about a user")
+    @utility_group.command(name="userinfo", description="View information about a user")
     @app_commands.describe(member="Member to inspect")
     async def userinfo(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
@@ -56,7 +61,7 @@ class Utility(commands.Cog):
         e.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles[:10]) or "None", inline=False)
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="avatar", description="Get a user's avatar")
+    @utility_group.command(name="avatar", description="Get a user's avatar")
     @app_commands.describe(member="Member (default: yourself)")
     async def avatar(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
@@ -65,7 +70,7 @@ class Utility(commands.Cog):
         e.add_field(name="Direct Link", value=f"[Click here]({member.display_avatar.url})")
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="banner", description="Get a user's banner")
+    @utility_group.command(name="banner", description="Get a user's banner")
     @app_commands.describe(member="Member (default: yourself)")
     async def banner(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
@@ -76,7 +81,7 @@ class Utility(commands.Cog):
         e.set_image(url=user.banner.url)
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="imagelink", description="Get the direct link of an image from a message")
+    @utility_group.command(name="imagelink", description="Get the direct link of an image from a message")
     @app_commands.describe(message_id="ID of the message containing the image")
     async def imagelink(self, interaction: discord.Interaction, message_id: str):
         try:
@@ -91,7 +96,7 @@ class Utility(commands.Cog):
         except discord.NotFound:
             await interaction.response.send_message("❌ Message not found.", ephemeral=True)
 
-    @app_commands.command(name="steal", description="Add a custom emoji from another server to this one")
+    @utility_group.command(name="steal", description="Add a custom emoji from another server to this one")
     @app_commands.describe(emoji="Custom emoji or direct image URL to add")
     @app_commands.checks.has_permissions(manage_emojis=True)
     async def steal(self, interaction: discord.Interaction, emoji: str):
@@ -122,7 +127,7 @@ class Utility(commands.Cog):
         except discord.HTTPException as e:
             await interaction.followup.send(f"❌ Failed: {e}", ephemeral=True)
 
-    @app_commands.command(name="sync", description="Sync slash commands (owner only)")
+    @utility_group.command(name="sync", description="Sync slash commands (owner only)")
     async def sync(self, interaction: discord.Interaction):
         if interaction.user.id != interaction.guild.owner_id:
             return await interaction.response.send_message("❌ Owner only.", ephemeral=True)
@@ -130,14 +135,14 @@ class Utility(commands.Cog):
         synced = await self.bot.tree.sync()
         await interaction.followup.send(f"✅ Synced **{len(synced)}** commands.", ephemeral=True)
 
-    @app_commands.command(name="rolelist", description="List all roles in this server")
+    @utility_group.command(name="rolelist", description="List all roles in this server")
     async def rolelist(self, interaction: discord.Interaction):
         roles = [r.mention for r in reversed(interaction.guild.roles) if r.name != "@everyone"]
         chunks = [roles[i:i + 20] for i in range(0, len(roles), 20)]
         e = discord.Embed(title=f"📋 Server Roles ({len(roles)})", description=" ".join(chunks[0]) if chunks else "None", color=discord.Color.blurple())
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="channelinfo", description="Get info about a channel")
+    @utility_group.command(name="channelinfo", description="Get info about a channel")
     @app_commands.describe(channel="Channel to inspect")
     async def channelinfo(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         ch = channel or interaction.channel
@@ -150,7 +155,7 @@ class Utility(commands.Cog):
         e.add_field(name="Topic", value=ch.topic or "None", inline=False)
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="membercount", description="Show the server member count")
+    @utility_group.command(name="membercount", description="Show the server member count")
     async def membercount(self, interaction: discord.Interaction):
         g = interaction.guild
         humans = sum(1 for m in g.members if not m.bot)
@@ -161,7 +166,7 @@ class Utility(commands.Cog):
         e.add_field(name="Bots", value=str(bots), inline=True)
         await interaction.response.send_message(embed=e)
 
-    @app_commands.command(name="remind", description="Get a DM reminder after a set time")
+    @utility_group.command(name="remind", description="Get a DM reminder after a set time")
     @app_commands.describe(minutes="Minutes from now", text="What to remind you about")
     async def remind(self, interaction: discord.Interaction, minutes: app_commands.Range[int, 1, 10080], text: str):
         import asyncio
