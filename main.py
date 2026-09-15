@@ -55,6 +55,7 @@ COGS = [
     "cogs.slots",
     "cogs.personalinvite",
     "cogs.botconfig",
+    "cogs.payembed",
 ]
 
 
