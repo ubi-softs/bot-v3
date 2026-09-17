@@ -47,7 +47,6 @@ COGS = [
     "cogs.vouch",
     "cogs.onlinerole",
     "cogs.autoresponder",
-    "cogs.socialmedia",
     "cogs.aichat",
     "cogs.notes",
     "cogs.setup",
