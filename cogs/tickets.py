@@ -5,6 +5,7 @@ import json, os, datetime, asyncio, io
 
 TICKETS_FILE = "data/tickets.json"
 CONFIG_FILE = "data/ticket_config.json"
+CLAIMS_FILE = "data/staff_claims.json"
 
 
 def load_tickets():
@@ -33,8 +34,20 @@ def save_config(d):
         json.dump(d, f, indent=2)
 
 
+def log_claim(guild_id: int, staff_id: int):
+    claims = {}
+    if os.path.exists(CLAIMS_FILE):
+        with open(CLAIMS_FILE) as f:
+            claims = json.load(f)
+    gid, sid = str(guild_id), str(staff_id)
+    claims.setdefault(gid, {}).setdefault(sid, 0)
+    claims[gid][sid] += 1
+    os.makedirs("data", exist_ok=True)
+    with open(CLAIMS_FILE, "w") as f:
+        json.dump(claims, f, indent=2)
+
+
 async def build_transcript(channel: discord.TextChannel) -> discord.File:
-    """Fetch the ticket's message history and turn it into a downloadable .txt transcript."""
     lines = []
     async for msg in channel.history(limit=1000, oldest_first=True):
         ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -46,7 +59,6 @@ async def build_transcript(channel: discord.TextChannel) -> discord.File:
 
 
 async def log_ticket_close(bot: commands.Bot, guild: discord.Guild, channel: discord.TextChannel, opener_id: str, ticket_type: str, closed_by: str):
-    """Post a transcript + summary to the configured ticket log channel, if one is set."""
     config = load_config()
     log_channel_id = config.get(str(guild.id), {}).get("log_channel")
     if not log_channel_id:
@@ -73,7 +85,7 @@ async def log_ticket_close(bot: commands.Bot, guild: discord.Guild, channel: dis
         pass
 
 
-# ── Ticket Panel View (the 5 buttons users click to open a ticket) ────────────
+# ── Ticket Panel View (10 buttons across two rows) ────────────────────────────
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -143,25 +155,47 @@ class TicketPanelView(discord.ui.View):
         )
         await interaction.response.send_message(f"✅ Ticket created: {ch.mention}", ephemeral=True)
 
-    @discord.ui.button(label="Speak to Owner", emoji="👑", style=discord.ButtonStyle.danger, custom_id="ticket_owner")
+    # ── Row 0: original 5 ───────────────────────────────────────
+    @discord.ui.button(label="Speak to Owner", emoji="👑", style=discord.ButtonStyle.danger, custom_id="ticket_owner", row=0)
     async def owner(self, interaction, button):
         await self._open_ticket(interaction, "Speak to Owner", "👑")
 
-    @discord.ui.button(label="Support", emoji="🛠️", style=discord.ButtonStyle.primary, custom_id="ticket_support")
+    @discord.ui.button(label="Support", emoji="🛠️", style=discord.ButtonStyle.primary, custom_id="ticket_support", row=0)
     async def support(self, interaction, button):
         await self._open_ticket(interaction, "Support", "🛠️")
 
-    @discord.ui.button(label="Purchase", emoji="💰", style=discord.ButtonStyle.success, custom_id="ticket_purchase")
+    @discord.ui.button(label="Purchase", emoji="💰", style=discord.ButtonStyle.success, custom_id="ticket_purchase", row=0)
     async def purchase(self, interaction, button):
         await self._open_ticket(interaction, "Purchase", "💰")
 
-    @discord.ui.button(label="Website Purchased", emoji="🌐", style=discord.ButtonStyle.secondary, custom_id="ticket_website")
+    @discord.ui.button(label="Website Purchased", emoji="🌐", style=discord.ButtonStyle.secondary, custom_id="ticket_website", row=0)
     async def website(self, interaction, button):
         await self._open_ticket(interaction, "Website Purchased", "🌐")
 
-    @discord.ui.button(label="Problem with Purchase", emoji="⚠️", style=discord.ButtonStyle.danger, custom_id="ticket_problem")
+    @discord.ui.button(label="Problem with Purchase", emoji="⚠️", style=discord.ButtonStyle.danger, custom_id="ticket_problem", row=0)
     async def problem(self, interaction, button):
         await self._open_ticket(interaction, "Problem with Purchase", "⚠️")
+
+    # ── Row 1: 5 new ────────────────────────────────────────────
+    @discord.ui.button(label="Shop 4 Shop", emoji="🔄", style=discord.ButtonStyle.secondary, custom_id="ticket_s4s", row=1)
+    async def shop4shop(self, interaction, button):
+        await self._open_ticket(interaction, "Shop 4 Shop", "🔄")
+
+    @discord.ui.button(label="General Question", emoji="❓", style=discord.ButtonStyle.secondary, custom_id="ticket_question", row=1)
+    async def general_question(self, interaction, button):
+        await self._open_ticket(interaction, "General Question", "❓")
+
+    @discord.ui.button(label="Partnership", emoji="🤝", style=discord.ButtonStyle.primary, custom_id="ticket_partnership", row=1)
+    async def partnership(self, interaction, button):
+        await self._open_ticket(interaction, "Partnership", "🤝")
+
+    @discord.ui.button(label="Report a User", emoji="🕵️", style=discord.ButtonStyle.danger, custom_id="ticket_report", row=1)
+    async def report_user(self, interaction, button):
+        await self._open_ticket(interaction, "Report a User", "🕵️")
+
+    @discord.ui.button(label="Middleman Request", emoji="🎟️", style=discord.ButtonStyle.success, custom_id="ticket_middleman", row=1)
+    async def middleman(self, interaction, button):
+        await self._open_ticket(interaction, "Middleman Request", "🎟️")
 
 
 # ── Ticket Control View (inside an open ticket) ───────────────────────────────
@@ -178,6 +212,7 @@ class TicketControlView(discord.ui.View):
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = interaction.channel.topic or ""
         await interaction.channel.edit(topic=f"{topic} | Claimed by {interaction.user}")
+        log_claim(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(f"✅ {interaction.user.mention} claimed this ticket.")
         button.disabled = True
         await interaction.message.edit(view=self)
@@ -211,7 +246,6 @@ class TicketCloseConfirmView(discord.ui.View):
         cid = str(interaction.channel.id)
         entry = tickets.get(gid, {}).get(cid, {})
 
-        # Log the transcript BEFORE the channel is deleted
         await log_ticket_close(
             interaction.client, interaction.guild, interaction.channel,
             entry.get("user_id", ""), entry.get("type", "Unknown"), str(interaction.user),
@@ -241,7 +275,7 @@ class Tickets(commands.Cog):
     def cog_unload(self):
         self.autoclose_loop.cancel()
 
-    # ── /setuptickets — asks which channel, then posts the 5-option panel ─────
+    # ── /setuptickets — asks which channel, then posts the 10-option panel ────
     @app_commands.command(name="setuptickets", description="Set up the ticket panel in a channel")
     @app_commands.describe(channel="Channel to post the ticket panel in")
     @app_commands.checks.has_permissions(administrator=True)
@@ -255,7 +289,12 @@ class Tickets(commands.Cog):
                 "🛠️ **Support** — General help & questions\n"
                 "💰 **Purchase** — Want to buy something?\n"
                 "🌐 **Website Purchased** — Bought from our website\n"
-                "⚠️ **Problem with Purchase** — Issue with an order\n\n"
+                "⚠️ **Problem with Purchase** — Issue with an order\n"
+                "🔄 **Shop 4 Shop** — Cross-promotion with another shop\n"
+                "❓ **General Question** — Anything else, no pressure to buy\n"
+                "🤝 **Partnership** — Partner/affiliate with us\n"
+                "🕵️ **Report a User** — Report a scammer or rule-breaker\n"
+                "🎟️ **Middleman Request** — Request a neutral middleman\n\n"
                 "*Select a category below to open your ticket.*"
             ),
             color=discord.Color.blurple(),
@@ -282,7 +321,6 @@ class Tickets(commands.Cog):
         save_config(config)
         await interaction.response.send_message(f"✅ Ticket category set to **{name}**", ephemeral=True)
 
-    # ── /setticketlog — where transcripts get posted on close ─────────────────
     @app_commands.command(name="setticketlog", description="Set the channel where ticket transcripts are logged when closed")
     @app_commands.describe(channel="Channel to log closed ticket transcripts to")
     @app_commands.checks.has_permissions(administrator=True)
@@ -297,6 +335,7 @@ class Tickets(commands.Cog):
     async def claim(self, interaction: discord.Interaction):
         topic = interaction.channel.topic or ""
         await interaction.channel.edit(topic=f"{topic} | Claimed by {interaction.user}")
+        log_claim(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(f"✅ {interaction.user.mention} has claimed this ticket.")
 
     @app_commands.command(name="ticketlist", description="List all open tickets")
@@ -334,7 +373,6 @@ class Tickets(commands.Cog):
         save_tickets(tickets)
         await interaction.followup.send(f"🗑️ Purged **{deleted}** ticket channels.", ephemeral=True)
 
-    # ── Auto-close configuration ───────────────────────────────────────────────
     autoclose_group = app_commands.Group(name="ticketautoclose", description="Configure automatic closing of inactive tickets")
 
     @autoclose_group.command(name="enable", description="Enable auto-closing of inactive tickets")
@@ -380,7 +418,6 @@ class Tickets(commands.Cog):
         e.add_field(name="Close After", value=f"{conf.get('autoclose_close_hours', 48)}h", inline=True)
         await interaction.response.send_message(embed=e, ephemeral=True)
 
-    # ── Background task: checks every 30 minutes for inactive tickets ─────────
     @tasks.loop(minutes=30)
     async def autoclose_loop(self):
         all_tickets = load_tickets()
@@ -406,7 +443,6 @@ class Tickets(commands.Cog):
                 if not channel:
                     continue
 
-                # Find the last message time in the channel
                 last_time = None
                 try:
                     async for msg in channel.history(limit=1):
