@@ -55,6 +55,7 @@ COGS = [
     "cogs.personalinvite",
     "cogs.botconfig",
     "cogs.payembed",
+    "cogs.massdm",
 ]
 
 
