@@ -25,7 +25,7 @@ DM_LIMIT = 2000                            # Discord's max message length
 # Server embed added under EVERY mass DM
 INVITE_LINK = "https://discord.gg/azami"
 SERVER_NAME = "Azami | Trusted R6 & Fortnite Accounts"
-SERVER_DESC = "Fast delivery, reliable support, and a **20-minute warranty** on every order.\nShop with confidence. 🛡"
+SERVER_DESC = "Best **Full Access Rainbow Six Accounts**,Full Access **Fortnite Accounts**,Fast delivery, reliable support, and a **20-minute warranty** on every order.\nShop with confidence. 🛡"
 EMBED_COLOR = 0x7C5CFF                     # change to match your server's colour
 BUTTON_LABEL = "Join Azami"
 SHOP_LINK = "https://azamiii.mysellauth.com"
