@@ -18,6 +18,20 @@ import re
 
 ID_RE = re.compile(r"<@!?(\d+)>|\b(\d{15,20})\b")
 
+# Appended to the bottom of EVERY mass DM (/dm all and /dm users)
+FOOTER = (
+    "\n\n━━━━━━━━━━━━━━━━━━\n"
+    "## 📢 THIS MESSAGE WAS SENT BY THE AZAMI SERVER\n"
+    "### 🔗 discord.gg/azami"
+)
+DM_LIMIT = 2000  # Discord's max message length
+
+
+def with_footer(message: str):
+    """Return message + footer, or None if the result is too long to send as a DM."""
+    full = message.rstrip() + FOOTER
+    return full if len(full) <= DM_LIMIT else None
+
 
 def parse_ids(text: str) -> set:
     """Pull user IDs out of a string containing @mentions and/or raw IDs."""
@@ -91,6 +105,13 @@ class MassDM(commands.Cog):
     async def dm_all(self, interaction: discord.Interaction, message: str, exclude: str = ""):
         await interaction.response.defer(ephemeral=True)
 
+        message = with_footer(message)
+        if message is None:
+            return await interaction.followup.send(
+                f"❌ Your message is too long. With the server footer added it must fit in {DM_LIMIT} characters. Nothing was sent.",
+                ephemeral=True,
+            )
+
         excluded_ids = parse_ids(exclude)
         if exclude.strip() and not excluded_ids:
             return await interaction.followup.send(
@@ -115,6 +136,13 @@ class MassDM(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def dm_users(self, interaction: discord.Interaction, targets: str, message: str):
         await interaction.response.defer(ephemeral=True)
+
+        message = with_footer(message)
+        if message is None:
+            return await interaction.followup.send(
+                f"❌ Your message is too long. With the server footer added it must fit in {DM_LIMIT} characters. Nothing was sent.",
+                ephemeral=True,
+            )
 
         ids = parse_ids(targets)
 
