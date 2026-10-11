@@ -28,6 +28,8 @@ SERVER_NAME = "Azami | Trusted R6 & Fortnite Accounts"
 SERVER_DESC = "Fast delivery, reliable support, and a **20-minute warranty** on every order.\nShop with confidence. 🛡"
 EMBED_COLOR = 0x7C5CFF                     # change to match your server's colour
 BUTTON_LABEL = "Join Azami"
+SHOP_LINK = "https://azamiii.mysellauth.com"
+SHOP_LABEL = "Shop Azami"
 SEND_DELAY = 1.5                           # seconds between DMs (be gentle, Discord flags fast DMing)
 MAX_CONSECUTIVE_FAILS = 20                 # stop early if this many DMs in a row fail
 # ────────────────────────────────────────────────────────────
@@ -67,9 +69,10 @@ def build_server_embed(guild=None):
 
 
 def build_link_view():
-    """A 'Join Azami' link button."""
+    """'Join Azami' and 'Shop Azami' link buttons, side by side."""
     view = discord.ui.View()
     view.add_item(discord.ui.Button(label=BUTTON_LABEL, style=discord.ButtonStyle.link, url=INVITE_LINK, emoji="🛡️"))
+    view.add_item(discord.ui.Button(label=SHOP_LABEL, style=discord.ButtonStyle.link, url=SHOP_LINK, emoji="🛒"))
     return view
 
 
@@ -277,7 +280,7 @@ class MassDM(commands.Cog):
         preview.add_field(name="Est. time", value=f"~{minutes} min", inline=True)
         if notes:
             preview.add_field(name="Notes", value=fit_lines(notes), inline=False)
-        preview.set_footer(text="Each DM = the message above + the Azami card below it + a Join button. Buttons expire in 60s.")
+        preview.set_footer(text="Each DM = the message above + the Azami card + Join/Shop buttons. Buttons expire in 60s.")
 
         server_embed = build_server_embed(interaction.guild)
         view = ConfirmView(interaction.user.id)
