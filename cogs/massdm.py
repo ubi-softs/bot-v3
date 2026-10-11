@@ -7,7 +7,7 @@ massdm.py — mass-DM cog (admin only, server only)
                                user IDs (non-members only work if the bot shares a
                                server with them or has talked to them before).
 
-Every DM automatically ends with the Azami invite link.
+Every DM ends with a branded Azami server embed (description + Join button).
 Before anything is sent you get a preview with Send / Cancel buttons.
 """
 import asyncio
@@ -20,8 +20,14 @@ from discord import app_commands
 from discord.ext import commands
 
 # ───────────────────────── settings ─────────────────────────
-INVITE_LINK = "https://discord.gg/azami"   # added to the bottom of EVERY mass DM
 DM_LIMIT = 2000                            # Discord's max message length
+
+# Server embed added under EVERY mass DM
+INVITE_LINK = "https://discord.gg/azami"
+SERVER_NAME = "Azami | Trusted R6 & Fortnite Accounts"
+SERVER_DESC = "Fast delivery, reliable support, and a **20-minute warranty** on every order.\nShop with confidence. 🛡"
+EMBED_COLOR = 0x7C5CFF                     # change to match your server's colour
+BUTTON_LABEL = "Join Azami"
 SEND_DELAY = 1.5                           # seconds between DMs (be gentle, Discord flags fast DMing)
 MAX_CONSECUTIVE_FAILS = 20                 # stop early if this many DMs in a row fail
 # ────────────────────────────────────────────────────────────
@@ -38,14 +44,33 @@ def parse_ids(text: str) -> set:
     return ids
 
 
-def with_footer(message: str):
-    """Message + the Azami link at the bottom. Returns None if it's empty or too long.
+def prepare_message(message: str):
+    """Clean the message text. Returns None if it's empty or too long.
     A typed '\\n' becomes a real line break (slash-command boxes can't hold newlines)."""
     message = message.replace("\\n", "\n").strip()
-    if not message:
+    if not message or len(message) > DM_LIMIT:
         return None
-    full = f"{message}\n\n{INVITE_LINK}"
-    return full if len(full) <= DM_LIMIT else None
+    return message
+
+
+def build_server_embed(guild=None):
+    """The 'bot's server' card shown under every DM."""
+    e = discord.Embed(title=f"🛡️ {SERVER_NAME}", url=INVITE_LINK, description=SERVER_DESC, color=EMBED_COLOR)
+    e.add_field(name="⚡ Fast Delivery", value="Get your order quickly", inline=True)
+    e.add_field(name="💬 Reliable Support", value="Help when you need it", inline=True)
+    e.add_field(name="🛡️ 20-Min Warranty", value="On every order", inline=True)
+    icon = guild.icon.url if guild is not None and guild.icon else None
+    if icon:
+        e.set_thumbnail(url=icon)
+    e.set_footer(text="Sent from the Azami server", icon_url=icon)
+    return e
+
+
+def build_link_view():
+    """A 'Join Azami' link button."""
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label=BUTTON_LABEL, style=discord.ButtonStyle.link, url=INVITE_LINK, emoji="🛡️"))
+    return view
 
 
 def fit_lines(lines, limit=1000):
@@ -133,16 +158,18 @@ class MassDM(commands.Cog):
             pass
 
     # ── send one DM, returns (ok, reason) ──
-    async def _dm_one(self, user, text: str):
+    async def _dm_one(self, user, text: str, embed: discord.Embed):
         for attempt in (1, 2):
             try:
-                await user.send(text)
+                await user.send(content=text, embed=embed, view=build_link_view())
                 return True, ""
             except discord.HTTPException as ex:
                 if ex.code == 40003 and attempt == 1:  # "opening DMs too fast" — back off once, retry
                     await asyncio.sleep(30)
                     continue
-                if ex.code == 50007:
+                if ex.code == 20026:
+                    reason = "20026 BOT QUARANTINED by Discord"
+                elif ex.code == 50007:
                     reason = "50007 DMs closed/blocked"
                 elif ex.code == 40003:
                     reason = "40003 sending too fast"
@@ -156,11 +183,12 @@ class MassDM(commands.Cog):
         return False, "unknown"
 
     # ── the sending loop with live status ──
-    async def _send_batch(self, interaction: discord.Interaction, targets: list, text: str, excluded):
+    async def _send_batch(self, interaction: discord.Interaction, targets: list, text: str, embed: discord.Embed, excluded):
         total = len(targets)
         sent = failed = consecutive = 0
         failed_names = []
         stopped_early = False
+        quarantined = False
         step = 1 if total <= 50 else 5  # how often the status message is refreshed
 
         async def push(embed):
@@ -175,7 +203,7 @@ class MassDM(commands.Cog):
 
         done = 0
         for i, user in enumerate(targets, start=1):
-            ok, reason = await self._dm_one(user, text)
+            ok, reason = await self._dm_one(user, text, embed)
             done = i
             if ok:
                 sent += 1
@@ -188,6 +216,11 @@ class MassDM(commands.Cog):
             if i % step == 0 and i != total:
                 await push(status_embed("📨 Mass DM in Progress", discord.Color.blurple(), i, total, sent, failed, excluded, failed_names))
 
+            if reason.startswith("20026"):
+                quarantined = True
+                stopped_early = True
+                break
+
             if consecutive >= MAX_CONSECUTIVE_FAILS and i < total:
                 stopped_early = True
                 break
@@ -198,7 +231,12 @@ class MassDM(commands.Cog):
             title="⛔ Mass DM Stopped Early" if stopped_early else "✅ Mass DM Complete",
             color=discord.Color.red() if stopped_early else discord.Color.green(),
         )
-        if stopped_early:
+        if quarantined:
+            final.description = (
+                "🚫 Discord has **quarantined this bot** for spam (error 20026), so no DMs can be sent. "
+                "Stopped immediately. Appeal at https://dis.gg/app-quarantine and don't mass DM again."
+            )
+        elif stopped_early:
             final.description = (
                 f"{MAX_CONSECUTIVE_FAILS} DMs in a row failed, so I stopped to avoid getting the bot flagged. "
                 "Check the errors below (50007 = closed DMs / blocked bot)."
@@ -239,10 +277,11 @@ class MassDM(commands.Cog):
         preview.add_field(name="Est. time", value=f"~{minutes} min", inline=True)
         if notes:
             preview.add_field(name="Notes", value=fit_lines(notes), inline=False)
-        preview.set_footer(text="The message above is exactly what gets sent. Buttons expire in 60 seconds.")
+        preview.set_footer(text="Each DM = the message above + the Azami card below it + a Join button. Buttons expire in 60s.")
 
+        server_embed = build_server_embed(interaction.guild)
         view = ConfirmView(interaction.user.id)
-        await interaction.followup.send(embed=preview, view=view, ephemeral=True)
+        await interaction.followup.send(embeds=[preview, server_embed], view=view, ephemeral=True)
         await view.wait()
 
         if view.confirmed is not True:
@@ -254,24 +293,24 @@ class MassDM(commands.Cog):
 
         self.running.add(guild_id)
         try:
-            await self._send_batch(interaction, targets, text, excluded)
+            await self._send_batch(interaction, targets, text, server_embed, excluded)
         finally:
             self.running.discard(guild_id)
 
     # ───────────────────────── /dm all ─────────────────────────
     @dm_group.command(name="all", description="DM every member currently in this server (optionally skipping some)")
     @app_commands.describe(
-        message="The message to send (the Azami link is added automatically)",
+        message="The message to send (an Azami server card is added automatically)",
         exclude="Members to skip: mention them (@user) and/or paste raw user IDs, separated by spaces",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def dm_all(self, interaction: discord.Interaction, message: str, exclude: str = ""):
         await interaction.response.defer(ephemeral=True)
 
-        text = with_footer(message)
+        text = prepare_message(message)
         if text is None:
             return await interaction.followup.send(
-                f"❌ Message is empty or too long. With the Azami link added it must fit in {DM_LIMIT} characters. Nothing was sent.",
+                f"❌ Message is empty or too long. Max length is {DM_LIMIT} characters. Nothing was sent.",
                 ephemeral=True,
             )
 
@@ -303,16 +342,16 @@ class MassDM(commands.Cog):
     @dm_group.command(name="users", description="DM specific members/users — tag members, or paste raw IDs for non-members")
     @app_commands.describe(
         targets="Mention members (@user) and/or paste raw user IDs, separated by spaces",
-        message="The message to send (the Azami link is added automatically)",
+        message="The message to send (an Azami server card is added automatically)",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def dm_users(self, interaction: discord.Interaction, targets: str, message: str):
         await interaction.response.defer(ephemeral=True)
 
-        text = with_footer(message)
+        text = prepare_message(message)
         if text is None:
             return await interaction.followup.send(
-                f"❌ Message is empty or too long. With the Azami link added it must fit in {DM_LIMIT} characters. Nothing was sent.",
+                f"❌ Message is empty or too long. Max length is {DM_LIMIT} characters. Nothing was sent.",
                 ephemeral=True,
             )
 
